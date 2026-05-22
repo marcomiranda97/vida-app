@@ -1,16 +1,152 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VIDA</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #0a0a0a; }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/App.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VIDA</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0a; font-family: -apple-system, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const TIMEFRAMES = ["Today", "This Week", "This Month", "This Year", "Someday"];
+    const initialTasks = [
+      { id: 1, text: "Work out — Mon through Fri at 7:30 AM", timeframe: "This Week", added: new Date().toISOString(), done: false }
+    ];
+
+    function getGreeting() {
+      const h = new Date().getHours();
+      if (h < 12) return "Good morning";
+      if (h < 17) return "Good afternoon";
+      return "Good evening";
+    }
+
+    function formatDate(d) {
+      return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    }
+
+    function VIDA() {
+      const [tasks, setTasks] = React.useState(initialTasks);
+      const [input, setInput] = React.useState("");
+      const [timeframe, setTimeframe] = React.useState("Today");
+      const [activeTab, setActiveTab] = React.useState("log");
+      const [chatMessages, setChatMessages] = React.useState([
+        { role: "assistant", text: "Hey Marco! I'm VIDA, your personal executive assistant. Tell me what's on your mind — goals, tasks, reminders, anything." }
+      ]);
+      const [chatInput, setChatInput] = React.useState("");
+      const [loading, setLoading] = React.useState(false);
+      const chatEndRef = React.useRef(null);
+
+      React.useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, [chatMessages]);
+
+      function addTask() {
+        if (!input.trim()) return;
+        setTasks(prev => [{ id: Date.now(), text: input.trim(), timeframe, added: new Date().toISOString(), done: false }, ...prev]);
+        setInput("");
+      }
+
+      async function sendChat() {
+        if (!chatInput.trim() || loading) return;
+        const userMsg = chatInput.trim();
+        setChatInput("");
+        setChatMessages(prev => [...prev, { role: "user", text: userMsg }]);
+        setLoading(true);
+        const taskSummary = tasks.map(t => `- [${t.timeframe}] ${t.text}${t.done ? " (done)" : ""}`).join("\n");
+        try {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-20250514",
+              max_tokens: 1000,
+              system: `You are VIDA, Marco's personal executive assistant. Warm, proactive, concise. Help Marco track goals across timeframes. Current tasks:\n${taskSummary}`,
+              messages: [...chatMessages.slice(1).map(m => ({ role: m.role, content: m.text })), { role: "user", content: userMsg }]
+            })
+          });
+          const data = await res.json();
+          setChatMessages(prev => [...prev, { role: "assistant", text: data.content?.[0]?.text || "Try again?" }]);
+        } catch {
+          setChatMessages(prev => [...prev, { role: "assistant", text: "Something went wrong. Try again." }]);
+        }
+        setLoading(false);
+      }
+
+      const grouped = TIMEFRAMES.reduce((acc, tf) => { acc[tf] = tasks.filter(t => t.timeframe === tf); return acc; }, {});
+
+      return (
+        <div style={{ background: "#0a0a0a", minHeight: "100vh", color: "#f0f0f0", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "32px 24px 16px", borderBottom: "1px solid #1a1a1a" }}>
+            <div style={{ fontSize: 11, color: "#555", letterSpacing: 3, textTransform: "uppercase", marginBottom: 4 }}>VIDA</div>
+            <div style={{ fontSize: 22, fontWeight: 300 }}>{getGreeting()}, Marco.</div>
+            <div style={{ fontSize: 13, color: "#444", marginTop: 4 }}>{tasks.filter(t => !t.done && t.timeframe === "Today").length} things on your plate today.</div>
+          </div>
+          <div style={{ display: "flex", borderBottom: "1px solid #1a1a1a" }}>
+            {[{ id: "log", label: "Log" }, { id: "tasks", label: "Tasks" }, { id: "chat", label: "Chat" }].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ flex: 1, padding: "14px 0", background: "none", border: "none", cursor: "pointer", color: activeTab === tab.id ? "#fff" : "#444", borderBottom: activeTab === tab.id ? "1px solid #fff" : "1px solid transparent", fontSize: 13, letterSpacing: 1, textTransform: "uppercase" }}>{tab.label}</button>
+            ))}
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+            {activeTab === "log" && (
+              <div>
+                <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="e.g. Update the backyard landscaping..." style={{ width: "100%", background: "#111", border: "1px solid #222", borderRadius: 8, color: "#e0e0e0", padding: 14, fontSize: 14, resize: "none", height: 90, outline: "none", boxSizing: "border-box" }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  {TIMEFRAMES.map(tf => (
+                    <button key={tf} onClick={() => setTimeframe(tf)} style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: timeframe === tf ? "#fff" : "#2a2a2a", background: timeframe === tf ? "#fff" : "transparent", color: timeframe === tf ? "#000" : "#555", fontSize: 12, cursor: "pointer" }}>{tf}</button>
+                  ))}
+                </div>
+                <button onClick={addTask} style={{ marginTop: 16, width: "100%", padding: 14, background: "#fff", color: "#000", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Add to VIDA</button>
+              </div>
+            )}
+            {activeTab === "tasks" && (
+              <div>
+                {TIMEFRAMES.map(tf => grouped[tf].length > 0 && (
+                  <div key={tf} style={{ marginBottom: 28 }}>
+                    <div style={{ fontSize: 11, color: "#444", letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>{tf}</div>
+                    {grouped[tf].map(task => (
+                      <div key={task.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 0", borderBottom: "1px solid #141414", opacity: task.done ? 0.35 : 1 }}>
+                        <button onClick={() => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, done: !t.done } : t))} style={{ width: 18, height: 18, borderRadius: "50%", border: "1px solid #333", background: task.done ? "#fff" : "transparent", cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, color: "#ddd", textDecoration: task.done ? "line-through" : "none" }}>{task.text}</div>
+                          <div style={{ fontSize: 11, color: "#444", marginTop: 3 }}>Added {formatDate(task.added)}</div>
+                        </div>
+                        <button onClick={() => setTasks(prev => prev.filter(t => t.id !== task.id))} style={{ background: "none", border: "none", color: "#333", cursor: "pointer", fontSize: 16 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+            {activeTab === "chat" && (
+              <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 220px)" }}>
+                <div style={{ flex: 1, overflowY: "auto", paddingBottom: 16 }}>
+                  {chatMessages.map((m, i) => (
+                    <div key={i} style={{ marginBottom: 16, display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+                      <div style={{ maxWidth: "80%", padding: "12px 16px", borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px", background: m.role === "user" ? "#fff" : "#161616", color: m.role === "user" ? "#000" : "#ddd", fontSize: 14, lineHeight: 1.5 }}>{m.text}</div>
+                    </div>
+                  ))}
+                  {loading && <div style={{ padding: "12px 16px", background: "#161616", borderRadius: "18px 18px 18px 4px", width: "fit-content", color: "#444" }}>...</div>}
+                  <div ref={chatEndRef} />
+                </div>
+                <div style={{ display: "flex", gap: 8, paddingTop: 12, borderTop: "1px solid #1a1a1a" }}>
+                  <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendChat()} placeholder="Talk to VIDA..." style={{ flex: 1, background: "#111", border: "1px solid #222", borderRadius: 24, color: "#e0e0e0", padding: "12px 16px", fontSize: 14, outline: "none" }} />
+                  <button onClick={sendChat} style={{ background: "#fff", border: "none", borderRadius: "50%", width: 44, height: 44, cursor: "pointer", fontSize: 18 }}>↑</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<VIDA />);
+  </script>
+</body>
 </html>
